@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id             String          @id @default(cuid())
+  name           String
+  email          String          @unique
+  password       String
+  role           Role            @default(PLAYER)
+  createdAt      DateTime        @default(now())
+  groupMembers   GroupMember[]
+  raceResults    RaceResult[]
+  bracketSlots   BracketSlot[]
+}
+
+model Tournament {
+  id             String            @id @default(cuid())
+  name           String
+  game           String            @default("Mario Kart World")
+  status         TournamentStatus  @default(SETUP)
+  createdAt      DateTime          @default(now())
+  groups         Group[]
+  bracketMatches BracketMatch[]
+}
+
+model Group {
+  id           String        @id @default(cuid())
+  tournamentId String
+  name         String
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  members      GroupMember[]
+  races        Race[]
+}
+
+model GroupMember {
+  id      String @id @default(cuid())
+  groupId String
+  userId  String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model Race {
+  id      String       @id @default(cuid())
+  groupId String
+  track   String
+  cup     String
+  status  RaceStatus   @default(PENDING)
+  group   Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  results RaceResult[]
+}
+
+model RaceResult {
+  id       String @id @default(cuid())
+  raceId   String
+  userId   String
+  position Int
+  points   Int
+  race     Race   @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([raceId, userId])
+}
+
+model BracketMatch {
+  id           String        @id @default(cuid())
+  tournamentId String
+  round        Int
+  matchNumber  Int
+  status       RaceStatus    @default(PENDING)
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  slots        BracketSlot[]
+}
+
+model BracketSlot {
+  id       String       @id @default(cuid())
+  matchId  String
+  userId   String?
+  position Int?
+  points   Int?
+  advanced Boolean      @default(false)
+  match    BracketMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user     User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+enum Role {
+  ADMIN
+  PLAYER
+}
+
+enum TournamentStatus {
+  SETUP
+  GROUP_STAGE
+  FINALS
+  COMPLETE
+}
+
+enum RaceStatus {
+  PENDING
+  COMPLETE
+}
