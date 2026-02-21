@@ -30,7 +30,7 @@ export default async function RacesAdminPage({ params }: { params: Promise<{ id:
   return (
     <div>
       <h1 className="text-2xl font-bold mb-2">{tournament.name}</h1>
-      <p className="text-muted-foreground mb-6">Group Stage: Enter Race Results</p>
+      <p className="text-muted-foreground mb-6">Group Stage: Record races and enter finishing positions</p>
       <RaceAdmin tournament={tournament} />
     </div>
   );
