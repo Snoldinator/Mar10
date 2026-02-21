@@ -43,6 +43,25 @@ export function TournamentSetup({
   const router = useRouter();
   const [groupName, setGroupName] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [drawing, setDrawing] = useState(false);
+
+  async function autoDraw() {
+    setDrawing(true);
+    try {
+      const res = await fetch(`/api/tournaments/${tournament.id}/auto-draw`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Drew ${data.groups} groups for ${data.players} players`);
+        router.refresh();
+      } else {
+        toast.error(data.error ?? "Auto draw failed");
+      }
+    } finally {
+      setDrawing(false);
+    }
+  }
 
   async function createGroup() {
     if (!groupName.trim()) return;
@@ -98,10 +117,30 @@ export function TournamentSetup({
 
   return (
     <div className="space-y-6">
-      {/* Create group */}
+      {/* Auto Draw */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Create Group</CardTitle>
+          <CardTitle className="text-base">Auto Draw</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Randomly shuffle all {players.length} player{players.length !== 1 ? "s" : ""} into
+                groups of 3–4. Existing empty groups will be replaced.
+              </p>
+            </div>
+            <Button onClick={autoDraw} disabled={drawing || players.length < 2} className="ml-4 shrink-0">
+              {drawing ? "Drawing…" : "Auto Draw"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Create group manually */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Manual Group</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
@@ -115,9 +154,6 @@ export function TournamentSetup({
               {creatingGroup ? "Creating..." : "Create"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Tip: You can also auto-generate groups (A, B, C...) by creating them one by one.
-          </p>
         </CardContent>
       </Card>
 
