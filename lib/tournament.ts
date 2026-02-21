@@ -36,6 +36,50 @@ export async function getGroupStandings(groupId: string): Promise<PlayerStanding
 }
 
 /**
+ * Generate a full round-robin schedule for one group using the circle algorithm.
+ * Every player faces every other player exactly once.
+ * Deletes existing PENDING races before inserting so re-generation is safe.
+ */
+export async function generateRoundRobin(groupId: string): Promise<number> {
+  const members = await prisma.groupMember.findMany({ where: { groupId } });
+
+  if (members.length < 2) {
+    throw new Error("Need at least 2 players to generate a round-robin schedule");
+  }
+
+  await prisma.race.deleteMany({ where: { groupId, status: "PENDING" } });
+
+  const ids = members.map((m) => m.userId);
+  const list = ids.length % 2 !== 0 ? [...ids, null] : [...ids]; // pad to even if needed
+  const half = list.length / 2;
+  const matchups: { player1Id: string; player2Id: string }[] = [];
+
+  for (let round = 0; round < list.length - 1; round++) {
+    for (let i = 0; i < half; i++) {
+      const p1 = list[i];
+      const p2 = list[list.length - 1 - i];
+      if (p1 && p2) matchups.push({ player1Id: p1, player2Id: p2 });
+    }
+    // Rotate: fix index 0, rotate the rest
+    const last = list.pop()!;
+    list.splice(1, 0, last);
+  }
+
+  await prisma.race.createMany({
+    data: matchups.map(({ player1Id, player2Id }) => ({
+      groupId,
+      player1Id,
+      player2Id,
+      track: "",
+      cup: "",
+      status: "PENDING",
+    })),
+  });
+
+  return matchups.length;
+}
+
+/**
  * Generate a single-elimination bracket from group standings.
  * advanceCount = how many players advance per group.
  * Seeds are interleaved so group winners don't meet until finals.

@@ -17,8 +17,11 @@ export default async function RacesAdminPage({ params }: { params: Promise<{ id:
           members: { include: { user: { select: { id: true, name: true } } } },
           races: {
             include: {
+              player1: { select: { id: true, name: true } },
+              player2: { select: { id: true, name: true } },
               results: { include: { user: { select: { id: true, name: true } } } },
             },
+            orderBy: { id: "asc" },
           },
         },
       },

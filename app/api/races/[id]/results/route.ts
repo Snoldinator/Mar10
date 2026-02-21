@@ -24,6 +24,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  // For 1v1 races, validate that submitted players match the race's assigned players
+  const race = await prisma.race.findUniqueOrThrow({
+    where: { id: raceId },
+    select: { player1Id: true, player2Id: true },
+  });
+  if (race.player1Id && race.player2Id) {
+    const expected = new Set([race.player1Id, race.player2Id]);
+    const submitted = parsed.data.results.map((r) => r.userId);
+    if (submitted.length !== 2 || !submitted.every((id) => expected.has(id))) {
+      return NextResponse.json({ error: "Submitted players do not match this matchup" }, { status: 400 });
+    }
+  }
+
   // Validate no duplicate positions
   const positions = parsed.data.results.map((r) => r.position);
   if (new Set(positions).size !== positions.length) {

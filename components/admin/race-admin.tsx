@@ -41,6 +41,10 @@ interface Race {
   track: string;
   cup: string;
   status: string;
+  player1Id: string | null;
+  player2Id: string | null;
+  player1: Player | null;
+  player2: Player | null;
   results: RaceResult[];
 }
 
@@ -62,205 +66,214 @@ interface Tournament {
   groups: Group[];
 }
 
+function PositionSelect({
+  userId,
+  value,
+  allPositions,
+  takenPositions,
+  onChange,
+}: {
+  userId: string;
+  value: number | undefined;
+  allPositions: number[];
+  takenPositions: Record<string, number>;
+  onChange: (pos: number) => void;
+}) {
+  const taken = new Set(
+    Object.entries(takenPositions)
+      .filter(([id]) => id !== userId)
+      .map(([, pos]) => pos)
+  );
+  return (
+    <Select value={value ? String(value) : ""} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger className="w-28">
+        <SelectValue placeholder="Place…" />
+      </SelectTrigger>
+      <SelectContent>
+        {allPositions.map((p) => (
+          <SelectItem key={p} value={String(p)} disabled={taken.has(p)}>
+            {p === 1 ? "1st" : p === 2 ? "2nd" : p === 3 ? "3rd" : `${p}th`} ({getPoints(p)} pts)
+            {taken.has(p) ? " ✗" : ""}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 export function RaceAdmin({ tournament }: { tournament: Tournament }) {
   const router = useRouter();
+  const [generating, setGenerating] = useState<string | null>(null);
 
-  // Record new race state
-  const [recordGroup, setRecordGroup] = useState<Group | null>(null);
+  const [enterRace, setEnterRace] = useState<{ race: Race; group: Group } | null>(null);
   const [track, setTrack] = useState("");
   const [cup, setCup] = useState("");
   const [positions, setPositions] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  // Edit existing race state
-  const [editRace, setEditRace] = useState<{ race: Race; group: Group } | null>(null);
-  const [editPositions, setEditPositions] = useState<Record<string, number>>({});
-  const [editSubmitting, setEditSubmitting] = useState(false);
-
-  function openRecord(group: Group) {
-    setRecordGroup(group);
-    setTrack("");
-    setCup("");
-    setPositions({});
+  async function handleGenerate(group: Group) {
+    setGenerating(group.id);
+    try {
+      const res = await fetch(`/api/groups/${group.id}/round-robin`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Generated ${data.matchups} matchups for Group ${group.name}`);
+        router.refresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? "Generation failed");
+      }
+    } finally {
+      setGenerating(null);
+    }
   }
 
-  function openEdit(race: Race, group: Group) {
-    setEditRace({ race, group });
+  function openEnter(race: Race, group: Group) {
+    setEnterRace({ race, group });
     const existing: Record<string, number> = {};
     for (const r of race.results) existing[r.userId] = r.position;
-    setEditPositions(existing);
+    setPositions(existing);
+    setTrack(race.track);
+    setCup(race.cup);
   }
 
-  async function submitRecord() {
-    if (!recordGroup) return;
-    if (!track.trim() || !cup.trim()) {
-      toast.error("Enter a track name and cup");
+  async function submitEnter() {
+    if (!enterRace) return;
+    const { race } = enterRace;
+    const players = [race.player1!, race.player2!];
+
+    if (!track.trim()) {
+      toast.error("Enter a track name");
       return;
     }
-    const results = recordGroup.members.map((m) => ({
-      userId: m.user.id,
-      position: positions[m.user.id] ?? 0,
+
+    const results = players.map((p) => ({
+      userId: p.id,
+      position: positions[p.id] ?? 0,
     }));
     if (results.some((r) => !r.position)) {
-      toast.error("Assign a finishing position to every player");
+      toast.error("Assign 1st and 2nd place to both players");
       return;
     }
 
     setSubmitting(true);
     try {
-      // Create race
-      const raceRes = await fetch(`/api/groups/${recordGroup.id}/races`, {
-        method: "POST",
+      // Update track/cup on the race record
+      await fetch(`/api/races/${race.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ track: track.trim(), cup: cup.trim() }),
       });
-      if (!raceRes.ok) { toast.error("Failed to create race"); return; }
-      const race = await raceRes.json();
 
       // Submit results
-      const resultsRes = await fetch(`/api/races/${race.id}/results`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ results }),
-      });
-      if (!resultsRes.ok) {
-        const err = await resultsRes.json();
-        toast.error(err.error ?? "Failed to save results");
-        return;
-      }
-
-      toast.success("Race recorded");
-      setRecordGroup(null);
-      router.refresh();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function submitEdit() {
-    if (!editRace) return;
-    const results = editRace.group.members.map((m) => ({
-      userId: m.user.id,
-      position: editPositions[m.user.id] ?? 0,
-    }));
-    if (results.some((r) => !r.position)) {
-      toast.error("Assign a finishing position to every player");
-      return;
-    }
-
-    setEditSubmitting(true);
-    try {
-      const res = await fetch(`/api/races/${editRace.race.id}/results`, {
+      const res = await fetch(`/api/races/${race.id}/results`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ results }),
       });
       if (res.ok) {
-        toast.success("Results updated");
-        setEditRace(null);
+        toast.success("Result recorded");
+        setEnterRace(null);
         router.refresh();
       } else {
         const err = await res.json();
-        toast.error(err.error ?? "Failed to save results");
+        toast.error(err.error ?? "Failed to save result");
       }
     } finally {
-      setEditSubmitting(false);
+      setSubmitting(false);
     }
-  }
-
-  function PositionSelect({
-    userId,
-    value,
-    takenPositions,
-    onChange,
-    playerCount,
-  }: {
-    userId: string;
-    value: number | undefined;
-    takenPositions: Record<string, number>;
-    onChange: (pos: number) => void;
-    playerCount: number;
-  }) {
-    const taken = new Set(
-      Object.entries(takenPositions)
-        .filter(([id]) => id !== userId)
-        .map(([, pos]) => pos)
-    );
-    return (
-      <Select
-        value={value ? String(value) : ""}
-        onValueChange={(v) => onChange(Number(v))}
-      >
-        <SelectTrigger className="w-32">
-          <SelectValue placeholder="Position…" />
-        </SelectTrigger>
-        <SelectContent>
-          {Array.from({ length: playerCount }, (_, i) => i + 1).map((p) => (
-            <SelectItem key={p} value={String(p)} disabled={taken.has(p)}>
-              {p}{p === 1 ? "st" : p === 2 ? "nd" : p === 3 ? "rd" : "th"}
-              {" "}({getPoints(p)} pts)
-              {taken.has(p) ? " ✗" : ""}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    );
   }
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Click <strong>Record Race</strong> on a group to enter the track, cup, and finishing positions in one step.
+        Click <strong>Generate Schedule</strong> to create all 1v1 matchups for a group,
+        then enter results as each race is played.
       </p>
 
-      {tournament.groups.map((group) => (
-        <Card key={group.id}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Group {group.name}</CardTitle>
-              <Button size="sm" onClick={() => openRecord(group)}>
-                Record Race
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {group.races.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No races yet — record the first one above.</p>
-            ) : (
-              <div className="space-y-2">
-                {group.races.map((race) => (
-                  <div
-                    key={race.id}
-                    className="flex items-center justify-between p-2 border rounded-md"
-                  >
-                    <div>
-                      <span className="font-medium text-sm">{race.track}</span>
-                      <span className="text-muted-foreground text-sm ml-2">({race.cup})</span>
-                      <Badge
-                        variant={race.status === "COMPLETE" ? "default" : "secondary"}
-                        className="ml-2 text-xs"
-                      >
-                        {race.status}
-                      </Badge>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={() => openEdit(race, group)}>
-                      Edit Results
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+      {tournament.groups.map((group) => {
+        const pending = group.races.filter((r) => r.status === "PENDING").length;
+        const complete = group.races.filter((r) => r.status === "COMPLETE").length;
 
-      {/* Record Race Dialog */}
-      <Dialog open={!!recordGroup} onOpenChange={(o) => !o && setRecordGroup(null)}>
-        <DialogContent className="max-w-md">
+        return (
+          <Card key={group.id}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Group {group.name}</CardTitle>
+                  {group.races.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {complete}/{group.races.length} races complete
+                    </p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={generating === group.id}
+                  onClick={() => handleGenerate(group)}
+                >
+                  {generating === group.id ? "Generating…" : "Generate Schedule"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {group.races.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No matchups yet — click Generate Schedule above.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {group.races.map((race) => {
+                    const p1 = race.player1;
+                    const p2 = race.player2;
+                    const winner = race.results.find((r) => r.position === 1);
+                    return (
+                      <div
+                        key={race.id}
+                        className="flex items-center justify-between p-2 border rounded-md"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-medium text-sm">
+                            {p1?.name ?? "?"} vs {p2?.name ?? "?"}
+                          </span>
+                          {race.status === "COMPLETE" && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              {race.track && `${race.track} · `}
+                              🏆 {winner?.user.name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 ml-3 shrink-0">
+                          <Badge
+                            variant={race.status === "COMPLETE" ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {race.status === "COMPLETE" ? "Done" : "Pending"}
+                          </Badge>
+                          <Button size="sm" variant="outline" onClick={() => openEnter(race, group)}>
+                            {race.status === "COMPLETE" ? "Edit" : "Enter Result"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      {/* Enter / Edit Result Dialog */}
+      <Dialog open={!!enterRace} onOpenChange={(o) => !o && setEnterRace(null)}>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Record Race — Group {recordGroup?.name}</DialogTitle>
+            <DialogTitle>
+              {enterRace?.race.player1?.name} vs {enterRace?.race.player2?.name}
+            </DialogTitle>
           </DialogHeader>
-          {recordGroup && (
+          {enterRace && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -282,62 +295,26 @@ export function RaceAdmin({ tournament }: { tournament: Tournament }) {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Finishing positions</p>
-                <p className="text-xs text-muted-foreground mb-2">Each position can only be assigned once.</p>
-                <div className="space-y-2">
-                  {recordGroup.members.map((m) => (
-                    <div key={m.user.id} className="flex items-center justify-between">
-                      <span className="text-sm">{m.user.name}</span>
-                      <PositionSelect
-                        userId={m.user.id}
-                        value={positions[m.user.id]}
-                        takenPositions={positions}
-                        onChange={(pos) => setPositions((prev) => ({ ...prev, [m.user.id]: pos }))}
-                        playerCount={recordGroup.members.length}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Button className="w-full" onClick={submitRecord} disabled={submitting}>
-                {submitting ? "Saving…" : "Save Race & Results"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Results Dialog */}
-      <Dialog open={!!editRace} onOpenChange={(o) => !o && setEditRace(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              Edit Results — {editRace?.race.track}
-            </DialogTitle>
-          </DialogHeader>
-          {editRace && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Group {editRace.group.name} · {editRace.race.cup}
-              </p>
               <div className="space-y-2">
-                {editRace.group.members.map((m) => (
-                  <div key={m.user.id} className="flex items-center justify-between">
-                    <span className="text-sm">{m.user.name}</span>
+                <p className="text-sm font-medium">Finishing order</p>
+                {[enterRace.race.player1!, enterRace.race.player2!].map((p) => (
+                  <div key={p.id} className="flex items-center justify-between">
+                    <span className="text-sm">{p.name}</span>
                     <PositionSelect
-                      userId={m.user.id}
-                      value={editPositions[m.user.id]}
-                      takenPositions={editPositions}
-                      onChange={(pos) => setEditPositions((prev) => ({ ...prev, [m.user.id]: pos }))}
-                      playerCount={editRace.group.members.length}
+                      userId={p.id}
+                      value={positions[p.id]}
+                      allPositions={[1, 2]}
+                      takenPositions={positions}
+                      onChange={(pos) =>
+                        setPositions((prev) => ({ ...prev, [p.id]: pos }))
+                      }
                     />
                   </div>
                 ))}
               </div>
-              <Button className="w-full" onClick={submitEdit} disabled={editSubmitting}>
-                {editSubmitting ? "Saving…" : "Save Results"}
+
+              <Button className="w-full" onClick={submitEnter} disabled={submitting}>
+                {submitting ? "Saving…" : "Save Result"}
               </Button>
             </div>
           )}

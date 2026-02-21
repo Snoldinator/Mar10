@@ -17,6 +17,8 @@ model User {
   groupMembers   GroupMember[]
   raceResults    RaceResult[]
   bracketSlots   BracketSlot[]
+  racesAsPlayer1 Race[]          @relation("RacePlayer1")
+  racesAsPlayer2 Race[]          @relation("RacePlayer2")
 }
 
 model Tournament {
@@ -49,13 +51,17 @@ model GroupMember {
 }
 
 model Race {
-  id      String       @id @default(cuid())
-  groupId String
-  track   String
-  cup     String
-  status  RaceStatus   @default(PENDING)
-  group   Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  results RaceResult[]
+  id        String       @id @default(cuid())
+  groupId   String
+  track     String
+  cup       String
+  status    RaceStatus   @default(PENDING)
+  player1Id String?
+  player2Id String?
+  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player1   User?        @relation("RacePlayer1", fields: [player1Id], references: [id], onDelete: SetNull)
+  player2   User?        @relation("RacePlayer2", fields: [player2Id], references: [id], onDelete: SetNull)
+  results   RaceResult[]
 }
 
 model RaceResult {
