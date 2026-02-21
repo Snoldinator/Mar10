@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { assignTracks } from "@/lib/tracks";
 
 export interface PlayerStanding {
   userId: string;
@@ -70,13 +71,14 @@ export async function generateRoundRobin(groupId: string): Promise<number> {
     list.splice(1, 0, last);
   }
 
+  const tracks = assignTracks(matchups.length);
   await prisma.race.createMany({
-    data: matchups.map(({ player1Id, player2Id }) => ({
+    data: matchups.map(({ player1Id, player2Id }, i) => ({
       groupId,
       player1Id,
       player2Id,
-      track: "",
-      cup: "",
+      track: tracks[i].name,
+      cup: tracks[i].cup,
       status: "PENDING",
     })),
   });
