@@ -321,7 +321,7 @@ export function RaceAdmin({ tournament }: { tournament: Tournament }) {
                     <PositionSelect
                       userId={p.id}
                       value={positions[p.id]}
-                      allPositions={[1, 2]}
+                      allPositions={Array.from({ length: 12 }, (_, i) => i + 1)}
                       takenPositions={positions}
                       onChange={(pos) =>
                         setPositions((prev) => ({ ...prev, [p.id]: pos }))
