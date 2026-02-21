@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -26,7 +28,11 @@ interface Tournament {
   game: string;
   status: string;
   createdAt: Date;
-  _count: { groups: number };
+  groupCount: number;
+  totalRaces: number;
+  completedRaces: number;
+  totalBracketMatches: number;
+  completedBracketMatches: number;
 }
 
 const schema = z.object({
@@ -42,10 +48,19 @@ const statusColors: Record<string, "default" | "secondary" | "outline" | "destru
   COMPLETE: "outline",
 };
 
+const statusLabels: Record<string, string> = {
+  SETUP: "Setup",
+  GROUP_STAGE: "Group Stage",
+  FINALS: "Finals",
+  COMPLETE: "Complete",
+};
+
 export function TournamentsAdmin({ initialTournaments }: { initialTournaments: Tournament[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [transitioning, setTransitioning] = useState<string | null>(null);
+  const [confirmComplete, setConfirmComplete] = useState<Tournament | null>(null);
 
   const form = useForm<FormData>({ resolver: zodResolver(schema) });
 
@@ -73,16 +88,22 @@ export function TournamentsAdmin({ initialTournaments }: { initialTournaments: T
   }
 
   async function updateStatus(id: string, status: string) {
-    const res = await fetch(`/api/tournaments/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) {
-      toast.success("Status updated");
-      router.refresh();
-    } else {
-      toast.error("Failed to update status");
+    setTransitioning(id);
+    try {
+      const res = await fetch(`/api/tournaments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Tournament moved to ${statusLabels[status] ?? status}`);
+        router.refresh();
+      } else {
+        toast.error(data.error ?? "Failed to update status");
+      }
+    } finally {
+      setTransitioning(null);
     }
   }
 
@@ -125,52 +146,121 @@ export function TournamentsAdmin({ initialTournaments }: { initialTournaments: T
             </CardContent>
           </Card>
         )}
-        {initialTournaments.map((t) => (
-          <Card key={t.id}>
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle className="text-lg">{t.name}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{t.game}</p>
+        {initialTournaments.map((t) => {
+          const busy = transitioning === t.id;
+          const pendingRaces = t.totalRaces - t.completedRaces;
+          const pendingMatches = t.totalBracketMatches - t.completedBracketMatches;
+
+          return (
+            <Card key={t.id}>
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-lg">{t.name}</CardTitle>
+                    <p className="text-sm text-muted-foreground">{t.game}</p>
+                  </div>
+                  <Badge variant={statusColors[t.status] ?? "secondary"}>
+                    {statusLabels[t.status] ?? t.status}
+                  </Badge>
                 </div>
-                <Badge variant={statusColors[t.status] ?? "secondary"}>{t.status}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">{t._count.groups} group(s)</p>
-              <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/admin/tournaments/${t.id}/setup`}>Setup</Link>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/admin/tournaments/${t.id}/races`}>Races</Link>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/admin/tournaments/${t.id}/bracket`}>Bracket</Link>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/tournaments/${t.id}`}>View</Link>
-                </Button>
-                {t.status === "SETUP" && (
-                  <Button size="sm" onClick={() => updateStatus(t.id, "GROUP_STAGE")}>
-                    Start Group Stage
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Progress info */}
+                <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
+                  <span>{t.groupCount} group{t.groupCount !== 1 ? "s" : ""}</span>
+                  {t.totalRaces > 0 && (
+                    <span className={pendingRaces > 0 ? "text-amber-600" : "text-green-600"}>
+                      {t.completedRaces}/{t.totalRaces} races complete
+                    </span>
+                  )}
+                  {t.totalBracketMatches > 0 && (
+                    <span className={pendingMatches > 0 ? "text-amber-600" : "text-green-600"}>
+                      {t.completedBracketMatches}/{t.totalBracketMatches} bracket matches complete
+                    </span>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/admin/tournaments/${t.id}/setup`}>Setup</Link>
                   </Button>
-                )}
-                {t.status === "GROUP_STAGE" && (
-                  <Button size="sm" onClick={() => updateStatus(t.id, "FINALS")}>
-                    Start Finals
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/admin/tournaments/${t.id}/races`}>Races</Link>
                   </Button>
-                )}
-                {t.status === "FINALS" && (
-                  <Button size="sm" onClick={() => updateStatus(t.id, "COMPLETE")}>
-                    Mark Complete
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/admin/tournaments/${t.id}/bracket`}>Bracket</Link>
                   </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/tournaments/${t.id}`}>View</Link>
+                  </Button>
+
+                  {t.status === "SETUP" && (
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => updateStatus(t.id, "GROUP_STAGE")}
+                    >
+                      {busy ? "Starting..." : "Start Group Stage"}
+                    </Button>
+                  )}
+                  {t.status === "GROUP_STAGE" && (
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => updateStatus(t.id, "FINALS")}
+                      title={pendingRaces > 0 ? `${pendingRaces} races still pending` : undefined}
+                    >
+                      {busy ? "Starting..." : "Start Finals"}
+                    </Button>
+                  )}
+                  {t.status === "FINALS" && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() => setConfirmComplete(t)}
+                    >
+                      Mark Complete
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
+
+      {/* Confirm Mark Complete */}
+      <Dialog open={!!confirmComplete} onOpenChange={(o) => !o && setConfirmComplete(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Mark tournament complete?</DialogTitle>
+            <DialogDescription>
+              <strong>{confirmComplete?.name}</strong> will be marked as finished.
+              {confirmComplete && confirmComplete.totalBracketMatches - confirmComplete.completedBracketMatches > 0 && (
+                <span className="block mt-1 text-amber-600">
+                  Warning: {confirmComplete.totalBracketMatches - confirmComplete.completedBracketMatches} bracket match(es) are still pending.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmComplete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={transitioning === confirmComplete?.id}
+              onClick={async () => {
+                if (!confirmComplete) return;
+                await updateStatus(confirmComplete.id, "COMPLETE");
+                setConfirmComplete(null);
+              }}
+            >
+              {transitioning === confirmComplete?.id ? "Saving..." : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -7,10 +7,34 @@ export default async function AdminTournamentsPage() {
   const session = await auth();
   if (session?.user.role !== "ADMIN") redirect("/dashboard");
 
-  const tournaments = await prisma.tournament.findMany({
+  const raw = await prisma.tournament.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { groups: true } } },
+    include: {
+      groups: {
+        include: {
+          races: { select: { status: true } },
+          _count: { select: { members: true } },
+        },
+      },
+      bracketMatches: { select: { status: true } },
+    },
   });
+
+  const tournaments = raw.map((t) => ({
+    id: t.id,
+    name: t.name,
+    game: t.game,
+    status: t.status,
+    createdAt: t.createdAt,
+    groupCount: t.groups.length,
+    totalRaces: t.groups.reduce((sum, g) => sum + g.races.length, 0),
+    completedRaces: t.groups.reduce(
+      (sum, g) => sum + g.races.filter((r) => r.status === "COMPLETE").length,
+      0
+    ),
+    totalBracketMatches: t.bracketMatches.length,
+    completedBracketMatches: t.bracketMatches.filter((m) => m.status === "COMPLETE").length,
+  }));
 
   return (
     <div>
