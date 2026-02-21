@@ -95,15 +95,22 @@ export async function generateBracket(tournamentId: string, advanceCount: number
     include: { members: { include: { user: true } } },
   });
 
-  // Gather top advanceCount from each group
-  const allAdvancers: string[] = [];
+  // Gather top advanceCount from each group, then interleave so group winners
+  // don't meet until finals: A1, B1, C1, A2, B2, C2, ...
+  const advancersByGroup: string[][] = [];
   for (const group of groups) {
     const standings = await getGroupStandings(group.id);
-    const top = standings.slice(0, advanceCount).map((s) => s.userId);
-    allAdvancers.push(...top);
+    advancersByGroup.push(standings.slice(0, advanceCount).map((s) => s.userId));
+  }
+  const allAdvancers: string[] = [];
+  for (let rank = 0; rank < advanceCount; rank++) {
+    for (const groupAdvancers of advancersByGroup) {
+      if (groupAdvancers[rank]) allAdvancers.push(groupAdvancers[rank]);
+    }
   }
 
   const numPlayers = allAdvancers.length;
+  if (numPlayers < 2) throw new Error("Need at least 2 players to generate a bracket");
   // Round up to next power of 2
   const bracketSize = Math.pow(2, Math.ceil(Math.log2(numPlayers)));
   const totalRounds = Math.log2(bracketSize);
@@ -111,51 +118,49 @@ export async function generateBracket(tournamentId: string, advanceCount: number
   // Delete existing bracket
   await prisma.bracketMatch.deleteMany({ where: { tournamentId } });
 
-  // Create all matches for round 1
-  const round1Matches = bracketSize / 2;
-  const matches = [];
-  for (let i = 0; i < round1Matches; i++) {
-    const match = await prisma.bracketMatch.create({
-      data: {
-        tournamentId,
-        round: 1,
-        matchNumber: i + 1,
-        status: "PENDING",
-      },
-    });
-
-    const p1 = allAdvancers[i * 2];
-    const p2 = allAdvancers[i * 2 + 1];
-
-    await prisma.bracketSlot.create({
-      data: { matchId: match.id, userId: p1 ?? null },
-    });
-    await prisma.bracketSlot.create({
-      data: { matchId: match.id, userId: p2 ?? null },
-    });
-
-    matches.push(match);
-  }
-
-  // Create placeholder matches for subsequent rounds
-  for (let round = 2; round <= totalRounds; round++) {
+  // Create placeholder matches for all rounds first so advanceWinner can find them
+  const matchIdsByRoundAndNumber: Record<number, Record<number, string>> = {};
+  for (let round = 1; round <= totalRounds; round++) {
+    matchIdsByRoundAndNumber[round] = {};
     const matchesInRound = bracketSize / Math.pow(2, round);
     for (let i = 0; i < matchesInRound; i++) {
       const match = await prisma.bracketMatch.create({
-        data: {
-          tournamentId,
-          round,
-          matchNumber: i + 1,
-          status: "PENDING",
-        },
+        data: { tournamentId, round, matchNumber: i + 1, status: "PENDING" },
       });
-      // Placeholder slots for 2 TBD players
       await prisma.bracketSlot.createMany({
         data: [
           { matchId: match.id, userId: null },
           { matchId: match.id, userId: null },
         ],
       });
+      matchIdsByRoundAndNumber[round][i + 1] = match.id;
+    }
+  }
+
+  // Seed round 1 slots with actual players; auto-advance byes
+  const round1Matches = bracketSize / 2;
+  for (let i = 0; i < round1Matches; i++) {
+    const matchId = matchIdsByRoundAndNumber[1][i + 1];
+    const p1 = allAdvancers[i * 2] ?? null;
+    const p2 = allAdvancers[i * 2 + 1] ?? null;
+
+    // Update the pre-created null slots with actual player IDs
+    const slots = await prisma.bracketSlot.findMany({
+      where: { matchId },
+      orderBy: { id: "asc" },
+    });
+    await prisma.bracketSlot.update({ where: { id: slots[0].id }, data: { userId: p1 } });
+    await prisma.bracketSlot.update({ where: { id: slots[1].id }, data: { userId: p2 } });
+
+    // Bye: one real player, no opponent — auto-advance immediately
+    if (p1 && !p2) {
+      await prisma.bracketSlot.update({ where: { id: slots[0].id }, data: { advanced: true } });
+      await prisma.bracketMatch.update({ where: { id: matchId }, data: { status: "COMPLETE" } });
+      await advanceWinner(matchId);
+    } else if (p2 && !p1) {
+      await prisma.bracketSlot.update({ where: { id: slots[1].id }, data: { advanced: true } });
+      await prisma.bracketMatch.update({ where: { id: matchId }, data: { status: "COMPLETE" } });
+      await advanceWinner(matchId);
     }
   }
 
@@ -184,7 +189,7 @@ export async function advanceWinner(matchId: string) {
       round: nextRound,
       matchNumber: nextMatchNumber,
     },
-    include: { slots: true },
+    include: { slots: { orderBy: { id: "asc" } } },
   });
 
   if (!nextMatch) return; // Finals winner, nothing to advance to

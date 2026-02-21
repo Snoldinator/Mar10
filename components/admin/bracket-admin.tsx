@@ -235,7 +235,13 @@ export function BracketAdmin({ tournament }: { tournament: Tournament }) {
           </DialogHeader>
           {selectedMatch && (
             <div className="space-y-3">
-              {selectedMatch.slots.filter((s) => s.userId).map((slot) => (
+              {selectedMatch.slots.filter((s) => s.userId).map((slot) => {
+                const takenByOthers = new Set(
+                  Object.entries(positions)
+                    .filter(([id]) => id !== slot.userId)
+                    .map(([, pos]) => pos)
+                );
+                return (
                 <div key={slot.id} className="flex items-center justify-between gap-3">
                   <span className="text-sm flex-1">{slot.user?.name}</span>
                   <Select
@@ -248,15 +254,17 @@ export function BracketAdmin({ tournament }: { tournament: Tournament }) {
                       <SelectValue placeholder="Position" />
                     </SelectTrigger>
                     <SelectContent>
-                      {Array.from({ length: selectedMatch.slots.length }, (_, i) => i + 1).map((p) => (
-                        <SelectItem key={p} value={String(p)}>
+                      {Array.from({ length: selectedMatch.slots.filter((s) => s.userId).length }, (_, i) => i + 1).map((p) => (
+                        <SelectItem key={p} value={String(p)} disabled={takenByOthers.has(p)}>
                           {p}{p === 1 ? "st" : p === 2 ? "nd" : p === 3 ? "rd" : "th"} ({getPoints(p)} pts)
+                          {takenByOthers.has(p) ? " ✗" : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-              ))}
+                );
+              })}
               <Button className="w-full" onClick={submitResults} disabled={submitting}>
                 {submitting ? "Saving..." : "Save & Advance Winner"}
               </Button>
