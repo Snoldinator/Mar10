@@ -5,6 +5,8 @@ export interface PlayerStanding {
   name: string;
   totalPoints: number;
   racesPlayed: number;
+  wins: number;
+  losses: number;
   positions: number[];
 }
 
@@ -23,12 +25,15 @@ export async function getGroupStandings(groupId: string): Promise<PlayerStanding
 
   const standings: PlayerStanding[] = members.map((m) => {
     const results = races.flatMap((r) => r.results.filter((res) => res.userId === m.userId));
+    const positions = results.map((r) => r.position);
     return {
       userId: m.userId,
       name: m.user.name,
       totalPoints: results.reduce((sum, r) => sum + r.points, 0),
       racesPlayed: results.length,
-      positions: results.map((r) => r.position),
+      wins: positions.filter((p) => p === 1).length,
+      losses: positions.filter((p) => p !== 1).length,
+      positions,
     };
   });
 

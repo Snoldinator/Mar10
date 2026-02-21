@@ -15,6 +15,8 @@ interface Standing {
   name: string;
   totalPoints: number;
   racesPlayed: number;
+  wins?: number;
+  losses?: number;
 }
 
 interface StandingsTableProps {
@@ -24,16 +26,25 @@ interface StandingsTableProps {
 }
 
 export function StandingsTable({ standings, highlightUserId, groupName }: StandingsTableProps) {
+  const showWL = standings.some((s) => s.wins !== undefined);
+
   return (
     <div>
       {groupName && <h3 className="font-semibold mb-2">Group {groupName}</h3>}
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-12">#</TableHead>
+            <TableHead className="w-10">#</TableHead>
             <TableHead>Player</TableHead>
-            <TableHead className="text-right">Races</TableHead>
-            <TableHead className="text-right">Points</TableHead>
+            {showWL ? (
+              <>
+                <TableHead className="text-right w-12">W</TableHead>
+                <TableHead className="text-right w-12">L</TableHead>
+              </>
+            ) : (
+              <TableHead className="text-right w-16">Races</TableHead>
+            )}
+            <TableHead className="text-right w-16">Pts</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -50,7 +61,14 @@ export function StandingsTable({ standings, highlightUserId, groupName }: Standi
                   )}
                 </div>
               </TableCell>
-              <TableCell className="text-right text-muted-foreground">{s.racesPlayed}</TableCell>
+              {showWL ? (
+                <>
+                  <TableCell className="text-right text-green-600 font-medium">{s.wins ?? 0}</TableCell>
+                  <TableCell className="text-right text-muted-foreground">{s.losses ?? 0}</TableCell>
+                </>
+              ) : (
+                <TableCell className="text-right text-muted-foreground">{s.racesPlayed}</TableCell>
+              )}
               <TableCell className="text-right font-semibold">{s.totalPoints}</TableCell>
             </TableRow>
           ))}

@@ -2,6 +2,9 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { RaceAdmin } from "@/components/admin/race-admin";
+import { StandingsTable } from "@/components/standings-table";
+import { getGroupStandings } from "@/lib/tournament";
+import { Card, CardContent } from "@/components/ui/card";
 import { notFound } from "next/navigation";
 
 export default async function RacesAdminPage({ params }: { params: Promise<{ id: string }> }) {
@@ -30,11 +33,37 @@ export default async function RacesAdminPage({ params }: { params: Promise<{ id:
 
   if (!tournament) notFound();
 
+  const groupStandings = await Promise.all(
+    tournament.groups.map(async (g) => ({
+      groupId: g.id,
+      groupName: g.name,
+      standings: await getGroupStandings(g.id),
+    }))
+  );
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-2">{tournament.name}</h1>
-      <p className="text-muted-foreground mb-6">Group Stage: Record races and enter finishing positions</p>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold mb-2">{tournament.name}</h1>
+        <p className="text-muted-foreground">Group Stage: Record races and enter finishing positions</p>
+      </div>
+
       <RaceAdmin tournament={tournament} />
+
+      {groupStandings.some((gs) => gs.standings.some((s) => s.racesPlayed > 0)) && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3">Current Standings</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {groupStandings.map((gs) => (
+              <Card key={gs.groupId}>
+                <CardContent className="pt-4">
+                  <StandingsTable standings={gs.standings} groupName={gs.groupName} />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
