@@ -140,10 +140,28 @@ export function RaceAdmin({ tournament }: { tournament: Tournament }) {
   async function submitEnter() {
     if (!enterRace) return;
     const { race } = enterRace;
-    const players = [race.player1!, race.player2!];
+    const players = [race.player1, race.player2].filter((p): p is Player => p !== null);
 
     if (!track.trim()) {
       toast.error("Enter a track name");
+      return;
+    }
+
+    if (players.length === 0) {
+      // No assigned players — only update track/cup
+      setSubmitting(true);
+      try {
+        await fetch(`/api/races/${race.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ track: track.trim(), cup: cup.trim() }),
+        });
+        toast.success("Race updated");
+        setEnterRace(null);
+        router.refresh();
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -152,7 +170,7 @@ export function RaceAdmin({ tournament }: { tournament: Tournament }) {
       position: positions[p.id] ?? 0,
     }));
     if (results.some((r) => !r.position)) {
-      toast.error("Assign 1st and 2nd place to both players");
+      toast.error("Assign a finishing position to each player");
       return;
     }
 
@@ -297,7 +315,7 @@ export function RaceAdmin({ tournament }: { tournament: Tournament }) {
 
               <div className="space-y-2">
                 <p className="text-sm font-medium">Finishing order</p>
-                {[enterRace.race.player1!, enterRace.race.player2!].map((p) => (
+                {[enterRace.race.player1, enterRace.race.player2].filter((p): p is Player => p !== null).map((p) => (
                   <div key={p.id} className="flex items-center justify-between">
                     <span className="text-sm">{p.name}</span>
                     <PositionSelect
@@ -311,6 +329,9 @@ export function RaceAdmin({ tournament }: { tournament: Tournament }) {
                     />
                   </div>
                 ))}
+                {!enterRace.race.player1 && !enterRace.race.player2 && (
+                  <p className="text-xs text-muted-foreground">No players assigned to this race.</p>
+                )}
               </div>
 
               <Button className="w-full" onClick={submitEnter} disabled={submitting}>
